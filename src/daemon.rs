@@ -8,7 +8,7 @@ use evdev::{
     AttributeSet, Device, EventType, InputEvent, KeyCode, RelativeAxisCode,
 };
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader, ErrorKind, Write};
+use std::io::{BufRead, BufReader, ErrorKind};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -210,6 +210,24 @@ fn uid_do_par(s: &UnixStream) -> Option<u32> {
     (r == 0).then_some(cred.uid)
 }
 
+// MSG_DONTWAIT em vez de O_NONBLOCK: o flag é do descritor compartilhado e
+// faria a thread de leitura do mesmo socket receber WouldBlock e desconectar.
+fn enviar_sem_bloquear(s: &UnixStream, msg: &str) -> std::io::Result<usize> {
+    let r = unsafe {
+        libc::send(
+            s.as_raw_fd(),
+            msg.as_ptr() as *const libc::c_void,
+            msg.len(),
+            libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL,
+        )
+    };
+    if r < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(r as usize)
+    }
+}
+
 impl Notificador {
     fn enviar(&mut self, msg: &str, so_ativos: bool) {
         let mut mortos = vec![];
@@ -217,7 +235,7 @@ impl Notificador {
             if so_ativos && !self.uids_ativos.contains(&c.uid) {
                 continue;
             }
-            match c.stream.write(msg.as_bytes()) {
+            match enviar_sem_bloquear(&c.stream, msg) {
                 Ok(_) => {}
                 // cliente atrasado: pula esta atualização
                 Err(e) if e.kind() == ErrorKind::WouldBlock => {}
@@ -295,11 +313,7 @@ fn servidor(g: Arc<Global>) {
                 continue;
             }
             let Ok(escrita) = stream.try_clone() else { continue };
-            let _ = escrita.set_nonblocking(true);
-            let mut escrita2 = escrita.try_clone().ok();
-            if let Some(e) = escrita2.as_mut() {
-                let _ = e.write(n.msg.as_bytes());
-            }
+            let _ = enviar_sem_bloquear(&escrita, n.msg);
             if n.uids_ativos.is_empty() || estado_uid(uid) == "active" {
                 n.uids_ativos.insert(uid);
             }

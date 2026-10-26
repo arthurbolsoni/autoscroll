@@ -34,6 +34,12 @@ enum Msg {
     Desconectado,
 }
 
+fn dbg_log(m: &str) {
+    if std::env::var_os("AUTOSCROLL_DEBUG").is_some() {
+        eprintln!("autoscroll overlay: {m}");
+    }
+}
+
 fn kdotool() -> Command {
     // cargo install deixa em ~/.cargo/bin, que o serviço não tem no PATH
     let local = std::env::var("HOME")
@@ -59,6 +65,7 @@ fn classe_ativa() -> String {
 fn posicao_mouse() -> Option<(i32, i32)> {
     let o = kdotool().args(["getmouselocation", "--shell"]).output().ok()?;
     let t = String::from_utf8_lossy(&o.stdout);
+    dbg_log(&format!("kdotool: {:?} {:?}", t, String::from_utf8_lossy(&o.stderr)));
     let pega = |k: &str| {
         t.lines()
             .find_map(|l| l.strip_prefix(k))
@@ -428,7 +435,8 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for App {
         _: &QueueHandle<Self>,
     ) {
         match ev {
-            zwlr_layer_surface_v1::Event::Configure { serial, .. } => {
+            zwlr_layer_surface_v1::Event::Configure { serial, width, height } => {
+                dbg_log(&format!("configure {width}x{height}"));
                 ls.ack_configure(serial);
                 for c in [app.selo.as_mut(), app.fantasma.as_mut()].into_iter().flatten() {
                     if &c.camada == ls && !c.configurada {
@@ -546,7 +554,7 @@ pub fn main() {
 
     let mut ativo = false;
     let mut ancora: Option<(i32, i32, i32, i32)> = None; // x, y locais + w, h da saída
-    let mut saida_ancora: Option<wl_output::WlOutput>;
+    let mut saida_ancora: Option<wl_output::WlOutput> = None;
     let mut offset = (0, 0);
 
     loop {
@@ -573,6 +581,7 @@ pub fn main() {
         while let Ok(m) = rx.try_recv() {
             match m {
                 Msg::Ativo(a) => {
+                    dbg_log(&format!("ativo {a}"));
                     if a != ativo {
                         ativo = a;
                         if !a {
@@ -592,6 +601,7 @@ pub fn main() {
                     mudou = true;
                 }
                 Msg::Ancora(x, y) => {
+                    dbg_log(&format!("ancora {x},{y} ativo={ativo} saidas={}", app.saidas.len()));
                     if !ativo || ancora.is_some() {
                         continue;
                     }
@@ -605,14 +615,18 @@ pub fn main() {
                     saida_ancora = saida.map(|o| o.out.clone());
                     ancora = Some((ax, ay, w, h));
                     app.selo = app.criar(&selo, saida_ancora.as_ref(), ax - SELO_PX / 2, ay - SELO_PX / 2, &qh);
-                    app.fantasma = app.criar(&fantasma, saida_ancora.as_ref(), ax - hx, ay - hy, &qh);
-                    mudou = true;
                 }
             }
         }
+        // O daemon só manda "pos" com o cursor preso (ANCHOR_CURSOR); só
+        // então o fantasma aparece.
         if mudou
-            && let (Some((ax, ay, w, h)), Some(f)) = (ancora, app.fantasma.as_ref())
+            && let Some((ax, ay, w, h)) = ancora
         {
+            if app.fantasma.is_none() {
+                app.fantasma = app.criar(&fantasma, saida_ancora.as_ref(), ax - hx, ay - hy, &qh);
+            }
+            let Some(f) = app.fantasma.as_ref() else { continue };
             // O Windows para o cursor na borda da tela; aqui também.
             let gx = (ax + offset.0).clamp(0, w - 1);
             let gy = (ay + offset.1).clamp(0, h - 1);
