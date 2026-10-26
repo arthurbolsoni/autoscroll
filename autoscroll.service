@@ -1,11 +1,27 @@
 [Unit]
-Description=Autoscroll estilo Windows (segurar botão do meio)
-After=systemd-udevd.service
+Description=autoscroll - rolagem estilo Windows com o botão do meio
+Wants=modprobe@uinput.service
+After=modprobe@uinput.service
 
 [Service]
-ExecStart=/usr/local/bin/autoscroll
+ExecStart=/usr/local/bin/autoscroll daemon
+RuntimeDirectory=autoscroll
 Restart=always
 RestartSec=2
+# Os eventos do mouse passam por aqui; nunca pode ficar sem CPU.
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=20
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+MemoryMax=64M
 
 [Install]
 WantedBy=multi-user.target

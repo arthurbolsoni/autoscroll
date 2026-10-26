@@ -1,0 +1,12 @@
+[Unit]
+Description=autoscroll - selo, cursor fantasma e foco da janela
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/local/bin/autoscroll overlay
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
