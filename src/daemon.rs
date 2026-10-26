@@ -67,6 +67,7 @@ struct Config {
     ghost_cursor: bool,
     ghost_scale: f64,
     snap_cursor_on_release: bool,
+    anchor_cursor: bool,
     blacklist: Vec<String>,
     extra_devices: Vec<String>,
     ignore_devices: Vec<String>,
@@ -89,6 +90,7 @@ impl Default for Config {
             ghost_cursor: true,
             ghost_scale: 1.0,
             snap_cursor_on_release: true,
+            anchor_cursor: false,
             blacklist: vec!["freecad".into(), "orcaslicer".into(), "minecraft".into()],
             extra_devices: vec![],
             ignore_devices: vec![],
@@ -143,6 +145,7 @@ fn ler_config(caminho: &Path) -> Config {
             "DESKTOP_SCROLL" => c.desktop_scroll = bool_de(v),
             "GHOST_CURSOR" => c.ghost_cursor = bool_de(v),
             "SNAP_CURSOR_ON_RELEASE" => c.snap_cursor_on_release = bool_de(v),
+            "ANCHOR_CURSOR" => c.anchor_cursor = bool_de(v),
             "BLACKLIST" => c.blacklist = lista(v),
             "EXTRA_DEVICES" => c.extra_devices = lista(v),
             "IGNORE_DEVICES" => c.ignore_devices = lista(v),
@@ -476,7 +479,7 @@ fn relogio(g: Arc<Global>) {
         }
         let mut n = g.notif.lock().unwrap();
         n.set(algum);
-        if g.cfg.ghost_cursor && (agora - ultimo_ghost).as_secs_f64() >= 1.0 / GHOST_HZ {
+        if g.cfg.anchor_cursor && g.cfg.ghost_cursor && (agora - ultimo_ghost).as_secs_f64() >= 1.0 / GHOST_HZ {
             ultimo_ghost = agora;
             // Só o arrasto preso tem fantasma: no modo alternar o cursor de
             // verdade anda.
@@ -637,7 +640,7 @@ fn bombear(caminho: PathBuf, mut dev: Device, g: Arc<Global>) {
                     } else {
                         let (clique, dx, dy) = (st.pendente, st.dx, st.dy);
                         st.zerar();
-                        if cfg.snap_cursor_on_release && (dx as i32 != 0 || dy as i32 != 0) {
+                        if cfg.anchor_cursor && cfg.snap_cursor_on_release && (dx as i32 != 0 || dy as i32 != 0) {
                             // Leva o cursor preso até onde a mão foi, como o Windows.
                             st.emitir(&[
                                 ev(EventType::RELATIVE, RelativeAxisCode::REL_X.0, dx as i32),
@@ -659,10 +662,12 @@ fn bombear(caminho: PathBuf, mut dev: Device, g: Arc<Global>) {
                     // Modo alternar: mede a distância mas deixa o cursor andar.
                     st.acumular(cod, v, cfg.max_drag_px);
                 } else if st.pendente || st.ativo {
-                    // Arrasto: engole o movimento para o cursor ficar preso e
-                    // a roda continuar caindo na mesma janela.
                     st.acumular(cod, v, cfg.max_drag_px);
-                    continue;
+                    // ANCHOR_CURSOR (midscroll): engole o movimento para o
+                    // cursor ficar preso; sem ele o cursor anda junto.
+                    if cfg.anchor_cursor {
+                        continue;
+                    }
                 }
             }
             match tipo {
