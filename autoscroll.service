@@ -1,0 +1,11 @@
+[Unit]
+Description=Autoscroll estilo Windows (segurar botão do meio)
+After=systemd-udevd.service
+
+[Service]
+ExecStart=/usr/local/bin/autoscroll
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
